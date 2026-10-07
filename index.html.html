@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Control de stock</title>
+<style>
+  :root{
+    --bg:#f7f8f6; --card:#ffffff; --text:#1f2420; --sub:#7c8579;
+    --line:#e2e6df; --accent:#3f7a55; --danger:#c0392b; --warn:#d99a2b;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#151815; --card:#1f231f; --text:#eef1ec; --sub:#9aa398;
+      --line:#33382f; --accent:#5fae7c; --danger:#e07566; --warn:#e6b25c; }
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    padding:16px;min-height:100vh;}
+  .wrap{max-width:520px;margin:0 auto;}
+  h1{font-size:1.2rem;margin:0 0 4px;}
+  .sub{color:var(--sub);font-size:.85rem;margin-bottom:16px;}
+  .tabs{display:flex;gap:8px;margin-bottom:16px;}
+  .tab{flex:1;text-align:center;padding:10px;border-radius:10px;border:1px solid var(--line);
+    background:var(--card);cursor:pointer;font-size:.9rem;}
+  .tab.active{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .panel{display:none;} .panel.active{display:block;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:12px 14px;margin-bottom:10px;}
+  .mat-row{display:flex;justify-content:space-between;align-items:center;}
+  .mat-name{font-weight:600;font-size:.95rem;}
+  .mat-code{color:var(--sub);font-size:.72rem;}
+  .qty{font-size:1.2rem;font-weight:700;}
+  .qty.low{color:var(--danger);} .qty.mid{color:var(--warn);}
+  #reader{width:100%;border-radius:12px;overflow:hidden;margin-bottom:12px;background:#000;min-height:220px;}
+  .btn{background:var(--accent);color:#fff;border:none;border-radius:10px;
+    padding:11px 16px;font-size:.92rem;cursor:pointer;width:100%;margin-top:8px;}
+  .btn.secondary{background:transparent;color:var(--text);border:1px solid var(--line);}
+  .mat-card{cursor:pointer;}
+  input,textarea{width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);
+    background:var(--bg);color:var(--text);margin-top:8px;font-size:.95rem;}
+  label{font-size:.78rem;color:var(--sub);margin-top:10px;display:block;}
+  .status{text-align:center;color:var(--sub);font-size:.85rem;margin:14px 0;}
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;
+    align-items:center;justify-content:center;z-index:10;padding:16px;}
+  .modal-bg.open{display:flex;}
+  .modal{background:var(--card);width:100%;max-width:420px;border-radius:16px;padding:20px;max-height:85vh;overflow-y:auto;}
+  .movs{max-height:200px;overflow-y:auto;font-size:.8rem;}
+  .mov-row{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);padding:6px 0;}
+  .empty{color:var(--sub);font-size:.85rem;text-align:center;padding:20px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Stock de materiales</h1>
+  <p class="sub">Escaneá un código para descontar, o gestioná el inventario.</p>
+  <div class="tabs">
+    <div class="tab active" data-tab="scan">Escanear</div>
+    <div class="tab" data-tab="list">Inventario</div>
+    <div class="tab" data-tab="log">Movimientos</div>
+  </div>
+  <div class="panel active" id="panel-scan">
+    <div id="reader"></div>
+    <button class="btn secondary" id="startScanBtn">Iniciar cámara</button>
+    <p class="status" id="scanStatus"></p>
+    <label>¿No podés escanear? Ingresá el código a mano</label>
+    <input type="text" id="manualCode" placeholder="código">
+    <button class="btn secondary" id="manualBtn">Buscar</button>
+  </div>
+  <div class="panel" id="panel-list">
+    <div id="matList"></div>
+    <button class="btn" id="addMatBtn">+ Agregar material</button>
+    <button class="btn secondary" id="bulkBtn">+ Carga masiva (varios a la vez)</button>
+  </div>
+  <div class="panel" id="panel-log">
+    <div id="logList" class="movs"></div>
+  </div>
+  <p class="status" id="globalStatus">Cargando…</p>
+</div>
+
+<div class="modal-bg" id="scanModal">
+  <div class="modal">
+    <h3 id="scanMatName"></h3>
+    <p class="sub" id="scanMatQty"></p>
+    <label>Cantidad a descontar</label>
+    <input type="number" id="scanQtyInput" value="1" min="1">
+    <button class="btn" id="confirmScanBtn">Descontar</button>
+    <button class="btn secondary" id="cancelScanBtn">Cancelar</button>
+  </div>
+</div>
+
+<div class="modal-bg" id="addStockModal">
+  <div class="modal">
+    <h3 id="addStockName"></h3>
+    <p class="sub" id="addStockQty"></p>
+    <label>Cantidad que entra (compra, reposición, etc.)</label>
+    <input type="number" id="addStockInput" value="1" min="1">
+    <button class="btn" id="confirmAddStockBtn">Sumar stock</button>
+    <hr style="border:none;border-top:1px solid var(--line);margin:14px 0;">
+    <label>O corregir la cantidad exacta (reemplaza el número actual)</label>
+    <input type="number" id="exactQtyInput" min="0" placeholder="cantidad real">
+    <button class="btn secondary" id="editStockDirectBtn">Corregir cantidad exacta</button>
+    <button class="btn secondary" id="cancelAddStockBtn">Cancelar</button>
+  </div>
+</div>
+
+<div class="modal-bg" id="bulkModal">
+  <div class="modal">
+    <h3>Carga masiva</h3>
+    <p class="sub" style="margin-top:-4px;">Una línea por material, así: <b>código; nombre; unidad; stock inicial</b><br>Ejemplo: MAT-001; Cartulina blanca; unidades; 20</p>
+    <textarea id="bulkText" rows="10" style="font-family:monospace;font-size:.85rem;" placeholder="MAT-001; Cartulina blanca; unidades; 20
+MAT-002; Cartulina negra; unidades; 20"></textarea>
+    <p class="status" id="bulkStatus"></p>
+    <button class="btn" id="bulkSaveBtn">Cargar todo</button>
+    <button class="btn secondary" id="bulkCancelBtn">Cancelar</button>
+  </div>
+</div>
+
+<div class="modal-bg" id="newMatModal">
+  <div class="modal">
+    <h3>Nuevo material</h3>
+    <label>Código (QR / barras / sticker NFC)</label>
+    <input type="text" id="newCode" placeholder="código único">
+    <label>Nombre</label>
+    <input type="text" id="newName" placeholder="ej: Cartulina blanca">
+    <label>Unidad</label>
+    <input type="text" id="newUnit" placeholder="ej: hojas, litros, rollos" value="unidades">
+    <label>Stock inicial</label>
+    <input type="number" id="newQty" value="0" min="0">
+    <button class="btn" id="saveMatBtn">Guardar</button>
+    <button class="btn secondary" id="cancelNewMatBtn">Cancelar</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import {
+  getFirestore, collection, doc, setDoc, updateDoc, onSnapshot
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+// ⚠️ PEGÁ ACÁ TU CONFIG DE FIREBASE (la misma que usaste en el calendario, mismo proyecto)
+const firebaseConfig = {
+  apiKey: "AIzaSyAJ_XsxgfjYDtw5bio30d7q1H_9z4v4Tpc",
+  authDomain: "control-stock-dorja-52a6b.firebaseapp.com",
+  projectId: "control-stock-dorja-52a6b",
+  storageBucket: "control-stock-dorja-52a6b.firebasestorage.app",
+  messagingSenderId: "99337608038",
+  appId: "1:99337608038:web:619751f8d8635f2bb446a7"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+let myName = localStorage.getItem('compartido_myname');
+if(!myName){
+  myName = prompt('¿Cómo te llamás? (se guarda en este dispositivo)') || 'Alguien';
+  localStorage.setItem('compartido_myname', myName);
+}
+
+let materials = {};
+let movements = [];
+let pendingCode = null;
+let pendingAddCode = null;
+let scanner = null;
+
+document.querySelectorAll('.tab').forEach(t=>{
+  t.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('panel-'+t.dataset.tab).classList.add('active');
+    if(t.dataset.tab==='list') renderList();
+    if(t.dataset.tab==='log') renderLog();
+  });
+});
+
+function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+
+function renderList(){
+  const el = document.getElementById('matList');
+  const ids = Object.keys(materials);
+  if(ids.length===0){ el.innerHTML='<p class="empty">Todavía no cargaste materiales.</p>'; return; }
+  el.innerHTML = ids.map(code=>{
+    const m = materials[code];
+    const qtyClass = m.qty<=2 ? 'low' : (m.qty<=5 ? 'mid' : '');
+    return '<div class="card mat-card" data-code="'+code+'"><div class="mat-row">'+
+      '<div><div class="mat-name">'+escapeHtml(m.name)+'</div><div class="mat-code">'+escapeHtml(code)+' · '+escapeHtml(m.unit||'')+'</div></div>'+
+      '<div class="qty '+qtyClass+'">'+m.qty+'</div></div></div>';
+  }).join('');
+  document.querySelectorAll('.mat-card').forEach(card=>{
+    card.addEventListener('click', ()=>openAddStockModal(card.dataset.code));
+  });
+}
+
+function renderLog(){
+  const el = document.getElementById('logList');
+  if(movements.length===0){ el.innerHTML='<p class="empty">Sin movimientos todavía.</p>'; return; }
+  const sorted = [...movements].sort((a,b)=>b.at-a.at);
+  el.innerHTML = sorted.slice(0,50).map(m=>{
+    const d = new Date(m.at);
+    const who = m.who ? (' · '+escapeHtml(m.who)) : '';
+    return '<div class="mov-row"><span>'+escapeHtml(m.materialName)+' ('+(m.delta>0?'+':'')+m.delta+')'+who+'</span>'+
+      '<span>'+d.toLocaleDateString()+' '+d.toLocaleTimeString().slice(0,5)+'</span></div>';
+  }).join('');
+}
+
+function lookupCode(code){
+  code = code.trim();
+  if(!code) return;
+  if(materials[code]) openScanModal(code);
+  else document.getElementById('scanStatus').textContent = 'Código no encontrado: "'+code+'". Podés agregarlo desde Inventario.';
+}
+
+function openScanModal(code){
+  pendingCode = code;
+  const m = materials[code];
+  document.getElementById('scanMatName').textContent = m.name;
+  document.getElementById('scanMatQty').textContent = 'Stock actual: '+m.qty+' '+(m.unit||'');
+  document.getElementById('scanQtyInput').value = 1;
+  document.getElementById('scanModal').classList.add('open');
+}
+
+document.getElementById('cancelScanBtn').addEventListener('click', ()=>{
+  document.getElementById('scanModal').classList.remove('open'); pendingCode=null;
+});
+
+document.getElementById('confirmScanBtn').addEventListener('click', async ()=>{
+  if(!pendingCode) return;
+  const qty = parseInt(document.getElementById('scanQtyInput').value)||0;
+  if(qty<=0) return;
+  const m = materials[pendingCode];
+  const newQty = Math.max(0, m.qty - qty);
+  try{
+    await updateDoc(doc(db,'materials',pendingCode), {qty:newQty});
+    const movId = 'm-'+Date.now()+'-'+Math.random().toString(36).slice(2,6);
+    await setDoc(doc(db,'movements',movId), {code:pendingCode, materialName:m.name, delta:-qty, resultQty:newQty, at:Date.now(), who:myName});
+    document.getElementById('scanStatus').textContent = 'Listo: '+m.name+' → '+newQty+' '+(m.unit||'');
+  }catch(err){ console.error(err); document.getElementById('scanStatus').textContent='Error al guardar.'; }
+  document.getElementById('scanModal').classList.remove('open'); pendingCode=null;
+});
+
+document.getElementById('manualBtn').addEventListener('click', ()=>lookupCode(document.getElementById('manualCode').value));
+
+document.getElementById('addMatBtn').addEventListener('click', ()=>{
+  document.getElementById('newCode').value='';
+  document.getElementById('newName').value='';
+  document.getElementById('newUnit').value='unidades';
+  document.getElementById('newQty').value='0';
+  document.getElementById('newMatModal').classList.add('open');
+});
+document.getElementById('cancelNewMatBtn').addEventListener('click', ()=>document.getElementById('newMatModal').classList.remove('open'));
+document.getElementById('saveMatBtn').addEventListener('click', async ()=>{
+  const code = document.getElementById('newCode').value.trim();
+  const name = document.getElementById('newName').value.trim();
+  const unit = document.getElementById('newUnit').value.trim();
+  const qty = parseInt(document.getElementById('newQty').value)||0;
+  if(!code || !name) return;
+  try{
+    await setDoc(doc(db,'materials',code), {name, unit, qty});
+    document.getElementById('newMatModal').classList.remove('open');
+  }catch(err){ console.error(err); }
+});
+
+function openAddStockModal(code){
+  pendingAddCode = code;
+  const m = materials[code];
+  document.getElementById('addStockName').textContent = m.name;
+  document.getElementById('addStockQty').textContent = 'Stock actual: '+m.qty+' '+(m.unit||'');
+  document.getElementById('addStockInput').value = 1;
+  document.getElementById('exactQtyInput').value = '';
+  document.getElementById('addStockModal').classList.add('open');
+}
+document.getElementById('cancelAddStockBtn').addEventListener('click', ()=>{
+  document.getElementById('addStockModal').classList.remove('open'); pendingAddCode=null;
+});
+document.getElementById('confirmAddStockBtn').addEventListener('click', async ()=>{
+  if(!pendingAddCode) return;
+  const add = parseInt(document.getElementById('addStockInput').value)||0;
+  if(add<=0) return;
+  const m = materials[pendingAddCode];
+  const newQty = m.qty + add;
+  try{
+    await updateDoc(doc(db,'materials',pendingAddCode), {qty:newQty});
+    const movId = 'm-'+Date.now()+'-'+Math.random().toString(36).slice(2,6);
+    await setDoc(doc(db,'movements',movId), {code:pendingAddCode, materialName:m.name, delta:add, resultQty:newQty, at:Date.now(), who:myName});
+  }catch(err){ console.error(err); }
+  document.getElementById('addStockModal').classList.remove('open'); pendingAddCode=null;
+});
+document.getElementById('editStockDirectBtn').addEventListener('click', async ()=>{
+  if(!pendingAddCode) return;
+  const raw = document.getElementById('exactQtyInput').value;
+  if(raw==='') return;
+  const newQty = parseInt(raw);
+  if(isNaN(newQty) || newQty<0) return;
+  const m = materials[pendingAddCode];
+  try{
+    await updateDoc(doc(db,'materials',pendingAddCode), {qty:newQty});
+    const movId = 'm-'+Date.now()+'-'+Math.random().toString(36).slice(2,6);
+    await setDoc(doc(db,'movements',movId), {code:pendingAddCode, materialName:m.name, delta:(newQty-m.qty), resultQty:newQty, at:Date.now(), note:'corrección manual', who:myName});
+  }catch(err){ console.error(err); }
+  document.getElementById('addStockModal').classList.remove('open'); pendingAddCode=null;
+});
+
+document.getElementById('bulkBtn').addEventListener('click', ()=>{
+  document.getElementById('bulkText').value='';
+  document.getElementById('bulkStatus').textContent='';
+  document.getElementById('bulkModal').classList.add('open');
+});
+document.getElementById('bulkCancelBtn').addEventListener('click', ()=>document.getElementById('bulkModal').classList.remove('open'));
+document.getElementById('bulkSaveBtn').addEventListener('click', async ()=>{
+  const raw = document.getElementById('bulkText').value;
+  const lines = raw.split('\n').map(l=>l.trim()).filter(l=>l.length>0);
+  const statusEl = document.getElementById('bulkStatus');
+  if(lines.length===0){ statusEl.textContent='No hay líneas para cargar.'; return; }
+  statusEl.textContent = 'Cargando 0/'+lines.length+'…';
+  let ok=0, fail=0;
+  for(let i=0;i<lines.length;i++){
+    const parts = lines[i].split(';').map(p=>p.trim());
+    const [code, name, unit, qtyStr] = parts;
+    if(!code || !name){ fail++; continue; }
+    const qty = parseInt(qtyStr)||0;
+    try{ await setDoc(doc(db,'materials',code), {name, unit: unit||'unidades', qty}); ok++; }
+    catch(err){ console.error(err); fail++; }
+    statusEl.textContent = 'Cargando '+(i+1)+'/'+lines.length+'…';
+  }
+  statusEl.textContent = 'Listo: '+ok+' cargados'+(fail>0?(', '+fail+' con error'):'')+'.';
+});
+
+document.getElementById('startScanBtn').addEventListener('click', async ()=>{
+  const btn = document.getElementById('startScanBtn');
+  if(scanner){ try{ await scanner.stop(); scanner=null; }catch(e){} btn.textContent='Iniciar cámara'; return; }
+  try{
+    scanner = new Html5Qrcode('reader');
+    await scanner.start({facingMode:'environment'}, {fps:10, qrbox:220}, (decodedText)=>lookupCode(decodedText), ()=>{});
+    btn.textContent='Detener cámara';
+  }catch(err){
+    console.error(err);
+    document.getElementById('scanStatus').textContent = 'No se pudo acceder a la cámara. Podés ingresar el código a mano.';
+  }
+});
+
+onSnapshot(collection(db,'materials'), snap=>{
+  materials = {};
+  snap.docs.forEach(d=>{ materials[d.id]=d.data(); });
+  renderList();
+  document.getElementById('globalStatus').textContent='';
+}, err=>{ console.error(err); document.getElementById('globalStatus').textContent='Error de conexión. Revisá tu config de Firebase.'; });
+
+onSnapshot(collection(db,'movements'), snap=>{
+  movements = snap.docs.map(d=>({id:d.id, ...d.data()}));
+  renderLog();
+});
+</script>
+</body>
+</html>
